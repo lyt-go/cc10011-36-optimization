@@ -1,4 +1,4 @@
-"""多维下钻接口：维护下钻路径，覆盖提交路径评审、启用路径、归档路径等动作。"""
+"""多维下钻接口：维护下钻路径，并提供消费标准维度映射结果的分层下钻读取。"""
 from __future__ import annotations
 
 from typing import Any
@@ -30,6 +30,28 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出多维下钻清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "drilldown", "total": total, "items": items}
+
+
+@router.get("/cache")
+def cache_snapshot() -> dict[str, Any]:
+    """下钻结果缓存视图：每条结果钉住的映射版本、依赖维度与命中次数。"""
+    return service.cache_snapshot()
+
+
+@router.get("/{entry_id}/layered")
+def layered_result(entry_id: int) -> dict[str, Any]:
+    """分层下钻读取：稳定命中直接复用；结果新鲜度与实际映射版本一致。"""
+    result, error = service.layered_result(entry_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=error)
+    return result
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条下钻路径明细；不存在时给出可读的错误说明。"""
@@ -56,10 +78,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出多维下钻清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "drilldown", "total": total, "items": items}

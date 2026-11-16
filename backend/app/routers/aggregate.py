@@ -1,4 +1,4 @@
-"""聚合配置接口：维护聚合规则，覆盖提交规则评审、生效规则、废弃规则等动作。"""
+"""聚合配置接口：维护聚合规则，并提供随映射缓存联动失效的分层聚合读取。"""
 from __future__ import annotations
 
 from typing import Any
@@ -30,6 +30,28 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出聚合配置清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "aggregate", "total": total, "items": items}
+
+
+@router.get("/cache")
+def cache_snapshot() -> dict[str, Any]:
+    """分层聚合缓存视图：随映射规则变更按维度联动失效。"""
+    return service.cache_snapshot()
+
+
+@router.get("/{entry_id}/layered")
+def layered_aggregate(entry_id: int) -> dict[str, Any]:
+    """分层聚合读取：只读取当前生效映射版本，跨粒度不混版本。"""
+    result, error = service.layered_aggregate(entry_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=error)
+    return result
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条聚合规则明细；不存在时给出可读的错误说明。"""
@@ -56,10 +78,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出聚合配置清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "aggregate", "total": total, "items": items}
